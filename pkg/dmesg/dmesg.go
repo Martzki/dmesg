@@ -104,7 +104,7 @@ func (d *Dmesg) SetBufSize(size uint32) {
 	d.bufSize = size
 }
 
-func (d *Dmesg) fetchRawMsg() {
+func (d *Dmesg) FetchRawMsg() {
 	file, err := os.OpenFile("/dev/kmsg", syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "failed to open /dev/kmsg:", err)
@@ -176,7 +176,7 @@ func (d *Dmesg) FetchRaw() ([]*msgElem, error) {
 func NewDmesg() *Dmesg {
 	d := &Dmesg{}
 	d.bufSize = defaultBufSize
-	d.fetchRawMsg()
+	d.FetchRawMsg()
 
 	return d
 }
