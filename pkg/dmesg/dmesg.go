@@ -1,3 +1,5 @@
+// Package dmesg provides interfaces to get log messages from linux kernel ring buffer like
+// cmd util 'dmesg' by reading data from /dev/kmsg.
 package dmesg
 
 import (
@@ -10,19 +12,19 @@ import (
 )
 
 const (
-	defaultBufSize = uint32(1 << 14)
+	defaultBufSize = uint32(1 << 14) // 16KB by default
 	levelMask      = uint64(1<<3 - 1)
 )
 
 type Msg struct {
-	Level      uint64
-	Facility   uint64
-	Seq        uint64
-	TsUsec     int64
-	Caller     string
-	IsFragment bool
-	Text       string
-	DeviceInfo map[string]string
+	Level      uint64            // SYSLOG lvel
+	Facility   uint64            // SYSLOG facility
+	Seq        uint64            // Message sequence number
+	TsUsec     int64             // Timestamp in microsecond
+	Caller     string            // Message caller
+	IsFragment bool              // This message is a fragment of an early message which is not a fragment
+	Text       string            // Log text
+	DeviceInfo map[string]string // Device info
 }
 
 type dmesg struct {
@@ -143,22 +145,34 @@ func fetch(bufSize uint32, fetchRaw bool) (dmesg, error) {
 	return d, err
 }
 
+// DmesgWithBufSize gets all messages from kernel ring buffer with specific buf size for each message.
+// It returns serialized message structure and the error while getting messages.
 func DmesgWithBufSize(bufSize uint32) ([]Msg, error) {
 	d, err := fetch(bufSize, false)
 
 	return d.msg, err
 }
 
+// RawDmesgWithBufSize gets all messages from kernel ring buffer with specific buf size for each message.
+// It returns native message from kernel without parsing and the error while getting messages.
 func RawDmesgWithBufSize(bufSize uint32) ([][]byte, error) {
 	d, err := fetch(bufSize, true)
 
 	return d.raw, err
 }
 
+// Dmesg gets all messages from kernel ring buffer with default buf size 16KB for each message.
+// It returns serialized message structure and the error while getting messages.
+// The error syscall.EINVAL means the buf size is not enough, consider to use
+// DmesgWithBufSize instead.
 func Dmesg() ([]Msg, error) {
 	return DmesgWithBufSize(defaultBufSize)
 }
 
+// RawDmesg gets all messages from kernel ring buffer with default buf size 16KB for each message.
+// It returns native message from kernel without parsing and the error while getting messages.
+// The error syscall.EINVAL means the buf size is not enough, consider to use
+// RawDmesgWithBufSize instead.
 func RawDmesg() ([][]byte, error) {
 	return RawDmesgWithBufSize(defaultBufSize)
 }
