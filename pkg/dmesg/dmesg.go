@@ -11,10 +11,10 @@ import (
 
 const (
 	defaultBufSize = uint32(1 << 14)
-	levelMask      = uint64(1 << 3 - 1)
+	levelMask      = uint64(1<<3 - 1)
 )
 
-type msgElem struct {
+type Msg struct {
 	Level      uint64
 	Facility   uint64
 	Seq        uint64
@@ -23,19 +23,15 @@ type msgElem struct {
 	IsFragment bool
 	Text       string
 	DeviceInfo map[string]string
-	Raw        []byte
 }
 
-type Dmesg struct {
-	num          uint64
-	msgTruncated bool
-	bufSize      uint32
-	msg          []*msgElem
+type dmesg struct {
+	raw [][]byte
+	msg []Msg
 }
 
-func parseData(data []byte) *msgElem {
-	msg := msgElem{}
-	msg.Raw = data
+func parseData(data []byte) *Msg {
+	msg := Msg{}
 
 	dataLen := len(data)
 	prefixEnd := bytes.IndexByte(data, ';')
@@ -90,93 +86,76 @@ func parseData(data []byte) *msgElem {
 	return &msg
 }
 
-func parseMsg(msg *msgElem) string {
-	res := fmt.Sprintf("<%d>[%d][%d][%d][%s][%t] %s", msg.Level, msg.Facility,
-		msg.Seq, msg.TsUsec, msg.Caller, msg.IsFragment, msg.Text)
-	for k, v := range msg.DeviceInfo {
-		res += fmt.Sprintf("\n %s=%s", k, v)
-	}
-
-	return res
-}
-
-func (d *Dmesg) SetBufSize(size uint32) {
-	d.bufSize = size
-}
-
-func (d *Dmesg) FetchRawMsg() {
+func fetch(bufSize uint32, fetchRaw bool) (dmesg, error) {
+	d := dmesg{}
 	file, err := os.OpenFile("/dev/kmsg", syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "failed to open /dev/kmsg:", err)
-		return
+		return d, err
 	}
 	defer file.Close()
 
 	var conn syscall.RawConn
 	conn, err = file.SyscallConn()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "failed to get raw fd:", err)
-		return
+		return d, err
 	}
 
+	if fetchRaw {
+		d.raw = make([][]byte, 0)
+	} else {
+		d.msg = make([]Msg, 0)
+	}
+
+	truncated := false
 	err = conn.Read(func(fd uintptr) bool {
-		d.msgTruncated = false
-		num := uint64(0)
 		for {
-			buf := make([]byte, d.bufSize)
+			buf := make([]byte, bufSize)
 			_, err := syscall.Read(int(fd), buf)
 			if errors.Is(err, syscall.EINVAL) {
-				d.msgTruncated = true
+				truncated = true
 			} else if err != nil {
-				d.num = num
 				return true
 			}
 
-			msg := parseData(buf)
-			if msg == nil {
-				continue
+			if fetchRaw {
+				d.raw = append(d.raw, buf)
+			} else {
+				msg := parseData(buf)
+				if msg == nil {
+					continue
+				}
+				d.msg = append(d.msg, *msg)
 			}
-
-			d.msg = append(d.msg, msg)
-			num++
 		}
 	})
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "get err while fetching data from kernel:", err)
 	}
-}
 
-func (d *Dmesg) FetchText(num uint64, reverse bool) ([]string, error) {
-	n := min(d.num, num)
-	res := make([]string, n)
-	for i := uint64(0); i < n; i++ {
-		res[i] = parseMsg(d.msg[i])
+	if truncated {
+		err = syscall.EINVAL
 	}
 
-	if d.msgTruncated {
-		return res, syscall.ENOBUFS
-	}
-
-	return res, nil
+	return d, err
 }
 
-func (d *Dmesg) FetchTextAll(reverse bool) ([]string, error) {
-	return d.FetchText(d.num, reverse)
+func DmesgWithBufSize(bufSize uint32) ([]Msg, error) {
+	d, err := fetch(bufSize, false)
+
+	return d.msg, err
 }
 
-func (d *Dmesg) FetchRaw() ([]*msgElem, error) {
-	if d.msgTruncated {
-		return d.msg, syscall.ENOBUFS
-	} else {
-		return d.msg, nil
-	}
+func RawDmesgWithBufSize(bufSize uint32) ([][]byte, error) {
+	d, err := fetch(bufSize, true)
+
+	return d.raw, err
 }
 
-func NewDmesg() *Dmesg {
-	d := &Dmesg{}
-	d.bufSize = defaultBufSize
-	d.FetchRawMsg()
+func Dmesg() ([]Msg, error) {
+	return DmesgWithBufSize(defaultBufSize)
+}
 
-	return d
+func RawDmesg() ([][]byte, error) {
+	return RawDmesgWithBufSize(defaultBufSize)
 }
