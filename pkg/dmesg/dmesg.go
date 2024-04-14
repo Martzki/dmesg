@@ -106,15 +106,17 @@ func fetch(bufSize uint32, fetchRaw bool) (dmesg, error) {
 		d.msg = make([]Msg, 0)
 	}
 
-	truncated := false
+	var syscallError error = nil
 	err = conn.Read(func(fd uintptr) bool {
 		for {
 			buf := make([]byte, bufSize)
 			_, err := syscall.Read(int(fd), buf)
-			if errors.Is(err, syscall.EINVAL) {
-				truncated = true
-			} else if err != nil {
-				return true
+			if err != nil {
+				syscallError = err
+				// EINVAL means buf is not enough, data would be truncated, but still can continue.
+				if !errors.Is(err, syscall.EINVAL) {
+					return true
+				}
 			}
 
 			if fetchRaw {
@@ -133,8 +135,9 @@ func fetch(bufSize uint32, fetchRaw bool) (dmesg, error) {
 		fmt.Fprintln(os.Stderr, "get err while fetching data from kernel:", err)
 	}
 
-	if truncated {
-		err = syscall.EINVAL
+	// EAGAIN means no more data, should be treated as normal.
+	if syscallError != nil && !errors.Is(syscallError, syscall.EAGAIN) {
+		err = syscallError
 	}
 
 	return d, err
