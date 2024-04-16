@@ -5,7 +5,6 @@ package dmesg
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"syscall"
@@ -132,10 +131,6 @@ func fetch(bufSize uint32, fetchRaw bool) (dmesg, error) {
 			}
 		}
 	})
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "get err while fetching data from kernel:", err)
-	}
 
 	// EAGAIN means no more data, should be treated as normal.
 	if syscallError != nil && !errors.Is(syscallError, syscall.EAGAIN) {
